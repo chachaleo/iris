@@ -5,13 +5,36 @@ import matplotlib.pyplot as plt
 from typing import Optional, Tuple
 
 IMAGE_SIZE = (640, 480) 
+INPUT_CHANNELS = 3
+
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-MODEL_PATH = "iris_semseg_upp_scse_mobilenetv2.onnx"
-INPUT_IMAGE = "chacha.jpg"  
+
+MODEL_PATH = "onnx/iris_seg_initial.onnx"
+INPUT_IMAGE = "img/sample.png"  
 
 # Load ONNX model
 session = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
+
+
+def preprocess(image: np.ndarray, input_resolution: Tuple[int, int], nn_input_channels: int) -> np.ndarray:
+        nn_input = cv2.resize(image.astype(float), input_resolution)
+        nn_input = np.divide(nn_input, 255)  # Replicates torchvision's ToTensor
+
+        nn_input = np.expand_dims(nn_input, axis=-1)
+        nn_input = np.tile(nn_input, (1, 1, nn_input_channels))
+
+        # Replicates torchvision's Normalization
+        means = np.array([0.485, 0.456, 0.406]) if nn_input_channels == 3 else 0.5
+        stds = np.array([0.229, 0.224, 0.225]) if nn_input_channels == 3 else 0.5
+
+        nn_input -= means
+        nn_input /= stds
+
+        nn_input = nn_input.transpose(2, 0, 1)
+        nn_input = np.expand_dims(nn_input, axis=0)
+
+        return nn_input
 
 # Load, preprocess, and prepare an infrared image for model inference
 def preprocess_image(image_path: str) -> Tuple[np.ndarray, np.ndarray]:
@@ -22,6 +45,7 @@ def preprocess_image(image_path: str) -> Tuple[np.ndarray, np.ndarray]:
     img_resized = cv2.resize(img, IMAGE_SIZE)  
     img_resized = np.stack([img_resized] * 3, axis=-1)  
     img_resized = img_resized.astype(np.float32) / 255.0  
+    
     img_resized = (img_resized - MEAN) / STD 
     
     img_resized = img_resized.transpose(2, 0, 1)  
@@ -66,6 +90,11 @@ if __name__ == "__main__":
     
     # Run inference
     output_tensor = run_inference(image_tensor)
+    print(output_tensor)
     segmented_map = np.squeeze(output_tensor, axis=0)
+
+    with open("segm.txt", "w") as f:
+        np.set_printoptions(threshold=np.inf)
+        print(output_tensor, file=f)
 
     plot_segmentation_map(segmented_map, ir_image)
