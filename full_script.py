@@ -435,7 +435,7 @@ def parametric_ellipsis(a: float, b: float, x0: float, y0: float, theta: float, 
     return np.array([x_coords, y_coords]).T
 
 # ----- Pupil to Iris Property Estimation -----
-def run_pupil_property_estimation(pupil_array, iris_array, pupil_x, pupil_y, iris_x, iris_y, min_pupil_diameter: float = 1.0, min_iris_diameter: float = 150.0,) -> Tuple[float, float]:
+def run_pupil_to_iris_property_estimation(pupil_array, iris_array, pupil_x, pupil_y, iris_x, iris_y, min_pupil_diameter: float = 1.0, min_iris_diameter: float = 150.0,) -> Tuple[float, float]:
     iris_diameter = float(np.linalg.norm(iris_array[:, None, :] - iris_array[None, :, :], axis=-1).max())
     pupil_diameter = float(np.linalg.norm(pupil_array[:, None, :] - pupil_array[None, :, :], axis=-1).max())
     center_distance = np.linalg.norm([iris_x - pupil_x, iris_y - pupil_y])
@@ -449,6 +449,19 @@ def run_pupil_property_estimation(pupil_array, iris_array, pupil_x, pupil_y, iri
         raise "Pupil center is outside iris!"
     return pupil_diameter / iris_diameter, center_distance * 2 / iris_diameter,
     
+
+# ----- Offgaze Estimation -----
+def run_offgaze_estimation(pupil_array, iris_array ) -> float:
+    pupil_eccentricity = get_eccentricity_through_moments(pupil_array)
+    iris_eccentricity = get_eccentricity_through_moments(iris_array)
+    offgaze =min(pupil_eccentricity, iris_eccentricity)
+    return offgaze
+
+def get_eccentricity_through_moments(shape_array: np.ndarray) -> float:
+    moments = cv2.moments(shape_array)
+    ecc = eccentricity(moments)
+    return ecc
+
 
 if __name__ == "__main__":
 
@@ -486,15 +499,14 @@ if __name__ == "__main__":
 
     # Geometry Estimation
     estimated_pupil, estimated_iris = run_geometry_estimation(pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y)
-    print(estimated_pupil, estimated_iris)
 
     # Pupil to Iris Property Estimation
-    pupil_to_iris_diameter_ratio, pupil_to_iris_center_dist_ratio = run_pupil_property_estimation(pupil_array, iris_array, pupil_x, pupil_y, iris_x, iris_y)
-    print(pupil_to_iris_diameter_ratio, pupil_to_iris_center_dist_ratio)
+    pupil_to_iris_diameter_ratio, pupil_to_iris_center_dist_ratio = run_pupil_to_iris_property_estimation(pupil_array, iris_array, pupil_x, pupil_y, iris_x, iris_y)
 
+    # Offgaze Estimation
+    offgaze = run_offgaze_estimation(pupil_array, iris_array)
+    print(offgaze)
 
-
-    
     #with open("full_output.txt", "w") as f:
     #    np.set_printoptions(threshold=np.inf)
     #    print(output_tensor, file=f)
