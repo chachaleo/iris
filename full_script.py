@@ -463,6 +463,83 @@ def get_eccentricity_through_moments(shape_array: np.ndarray) -> float:
     return ecc
 
 
+# ----- Occlusion Calculator -----
+def run_occlusion_calculator(
+    pupil_array, iris_array, eyeball_array, noise_mask, angle, pupil_x, pupil_y, iris_x, iris_y, quantile_angle
+) -> float:
+    if quantile_angle == 0.0:
+        return 0.0
+    img_h, img_w = noise_mask.shape
+    frame = np.array([[0, 0], [0, img_h], [img_w, img_h], [img_w, 0], [0, 0]])
+    all_points = np.concatenate(
+        [
+            iris_array,
+            eyeball_array,
+            pupil_array,
+            frame,
+        ]
+    )
+    offset = np.floor(all_points.min(axis=0))  
+    total_mask_shape = (np.ceil(all_points.max(axis=0)) - offset).astype(int)
+    overflow = np.ceil(all_points.max(axis=0)) - (img_w, img_h)
+    pads = np.array([(-offset[1], overflow[1]), (-offset[0], overflow[0])]).astype(int)
+    offseted_noise_mask = np.pad(noise_mask, pads)
+    xs2mask, ys2mask = get_quantile_points(iris_array, angle, pupil_x, pupil_y, iris_x, iris_y)
+    iris_mask_quantile = contour_to_mask(
+        np.column_stack([xs2mask, ys2mask]) - offset, mask_shape=total_mask_shape
+    )
+    pupil_mask = contour_to_mask(pupil_array - offset, mask_shape=total_mask_shape)
+    eyeball_mask = contour_to_mask(eyeball_array - offset, mask_shape=total_mask_shape)
+    frame_mask = contour_to_mask(frame - offset, mask_shape=total_mask_shape)
+    visible_iris_mask = iris_mask_quantile & ~pupil_mask & eyeball_mask & ~offseted_noise_mask & frame_mask
+    extrapolated_iris_mask = iris_mask_quantile & ~pupil_mask
+    if extrapolated_iris_mask.sum() == 0:
+        return 0.0
+    visible_fraction = visible_iris_mask.sum() / extrapolated_iris_mask.sum()
+
+    return visible_fraction
+
+def get_quantile_points(
+    iris_coords: np.ndarray, angle, pupil_x, pupil_y, iris_x, iris_y
+) -> Tuple[np.ndarray, np.ndarray]:
+    orientation_angle = np.degrees(angle)
+    num_rotations = -round(orientation_angle * len(iris_coords) / 360.0)
+    iris_xs, iris_ys = iris_coords[:, 0], iris_coords[:, 1]
+    iris_rhos, iris_phis = cartesian2polar(iris_xs, iris_ys, iris_x, iris_y)
+    iris_phis = np.roll(iris_phis, num_rotations, axis=0)
+    iris_rhos = np.roll(iris_rhos, num_rotations, axis=0)
+    scaled_quantile = round(quantile_angle * len(iris_coords) / 360.0)
+    phis2mask = np.concatenate(
+        [
+            iris_phis[:scaled_quantile],
+            iris_phis[-scaled_quantile:],
+            iris_phis[len(iris_phis) // 2 : len(iris_phis) // 2 + scaled_quantile],
+            iris_phis[len(iris_phis) // 2 - scaled_quantile : len(iris_phis) // 2],
+        ]
+    )
+    rhos2mask = np.concatenate(
+        [
+            iris_rhos[:scaled_quantile],
+            iris_rhos[-scaled_quantile:],
+            iris_rhos[len(iris_rhos) // 2 : len(iris_rhos) // 2 + scaled_quantile],
+            iris_rhos[len(iris_rhos) // 2 - scaled_quantile : len(iris_rhos) // 2],
+        ]
+    )
+    phis2mask, rhos2mask = zip(*sorted(zip(phis2mask, rhos2mask)))
+    xs2mask, ys2mask = polar2cartesian(rhos2mask, phis2mask,iris_x,iris_y)
+    return xs2mask, ys2mask
+
+def contour_to_mask(vertices: np.ndarray, mask_shape: Tuple[int, int]) -> np.ndarray:
+    width, height = mask_shape
+    mask = np.zeros(shape=(height, width, 3))
+    vertices = np.round(vertices).astype(np.int32)
+    cv2.fillPoly(mask, pts=[vertices], color=(255, 0, 0))
+    mask = mask[..., 0]
+    mask = mask.astype(bool)
+
+    return mask
+
+
 if __name__ == "__main__":
 
     # LOAD IR image
@@ -498,14 +575,25 @@ if __name__ == "__main__":
     pupil_arcs, iris_arcs, eyeball_array = run_smoothing(pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y)
 
     # Geometry Estimation
-    estimated_pupil, estimated_iris = run_geometry_estimation(pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y)
+    # estimated_pupil, estimated_iris
+    pupil_array, iris_array = run_geometry_estimation(pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y)
 
     # Pupil to Iris Property Estimation
     pupil_to_iris_diameter_ratio, pupil_to_iris_center_dist_ratio = run_pupil_to_iris_property_estimation(pupil_array, iris_array, pupil_x, pupil_y, iris_x, iris_y)
 
     # Offgaze Estimation
     offgaze = run_offgaze_estimation(pupil_array, iris_array)
-    print(offgaze)
+
+    # Occlusion 90 Calculator
+    quantile_angle = 90.0
+    visible_fraction = run_occlusion_calculator(pupil_array, iris_array, eyeball_array, noise_mask, angle, pupil_x, pupil_y, iris_x, iris_y, quantile_angle)
+    
+    # Occlusion 30 Calculator
+    quantile_angle = 30.0
+    visible_fraction = run_occlusion_calculator(pupil_array, iris_array, eyeball_array, noise_mask, angle, pupil_x, pupil_y, iris_x, iris_y, quantile_angle)
+    
+
+    print(visible_fraction)
 
     #with open("full_output.txt", "w") as f:
     #    np.set_printoptions(threshold=np.inf)

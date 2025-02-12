@@ -21,9 +21,10 @@ Implementation of ZKML iris recognition, using the worldcoin iris recognition pi
 11. **Geometry Estimation** → `iris.FusionExtrapolation` ✅
 12. **Pupil to Iris Property Estimation** → `iris.PupilIrisPropertyCalculator` ✅
 13. **Offgaze Estimation** → `iris.EccentricityOffgazeEstimation` ✅
-14. **Occlusion 90 Calculator** → `iris.OcclusionCalculator`
-15. **Occlusion 30 Calculator** → `iris.OcclusionCalculator`
+14. **Occlusion 90 Calculator** → `iris.OcclusionCalculator` ✅
+15. **Occlusion 30 Calculator** → `iris.OcclusionCalculator` ✅
 16. **Noise Masks Aggregation** → `iris.NoiseMaskUnion`
+
 17. **Normalization** → `iris.LinearNormalization` 
 
 18. **Sharpness Estimation** → `iris.SharpnessEstimation`
