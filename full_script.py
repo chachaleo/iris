@@ -376,8 +376,6 @@ def rolling_median(signal: np.ndarray, kernel_offset: int) -> np.ndarray:
     return rolling_median
 
 # ----- Geometry Estimation -----
-
-
 def run_geometry_estimation(pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y, algorithm_switch_std_threshold: float = 3.5) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     xs, ys = iris_array[:, 0], iris_array[:, 1]
     rhos, _ = cartesian2polar(xs, ys, iris_x, iris_y)
@@ -393,7 +391,6 @@ def circle_extrapolation(pupil_array, iris_array, pupil_x, pupil_y, iris_x, iris
     estimated_pupil = estimate(pupil_array, (pupil_x, pupil_y))
     estimated_iris = estimate(iris_array, (iris_x, iris_y))
     return estimated_pupil, estimated_iris
-
 
 def estimate(vertices: np.ndarray, center_xy: Tuple[float, float], dphi: float = 0.9) -> np.ndarray:
     rhos, phis = cartesian2polar(vertices[:, 0], vertices[:, 1], *center_xy)
@@ -437,6 +434,22 @@ def parametric_ellipsis(a: float, b: float, x0: float, y0: float, theta: float, 
     y_coords = y0 + b * np.cos(t) * np.cos(-theta) - a * np.sin(t) * np.sin(-theta)
     return np.array([x_coords, y_coords]).T
 
+# ----- Pupil to Iris Property Estimation -----
+def run_pupil_property_estimation(pupil_array, iris_array, pupil_x, pupil_y, iris_x, iris_y, min_pupil_diameter: float = 1.0, min_iris_diameter: float = 150.0,) -> Tuple[float, float]:
+    iris_diameter = float(np.linalg.norm(iris_array[:, None, :] - iris_array[None, :, :], axis=-1).max())
+    pupil_diameter = float(np.linalg.norm(pupil_array[:, None, :] - pupil_array[None, :, :], axis=-1).max())
+    center_distance = np.linalg.norm([iris_x - pupil_x, iris_y - pupil_y])
+    if pupil_diameter < min_pupil_diameter:
+        raise "Pupil diameter is too small!"
+    if iris_diameter < min_iris_diameter:
+        raise "Iris diameter is too small!"
+    if pupil_diameter >= iris_diameter:
+        raise "Pupil diameter is larger than/equal to Iris diameter!"
+    if center_distance * 2 >= iris_diameter:
+        raise "Pupil center is outside iris!"
+    return pupil_diameter / iris_diameter, center_distance * 2 / iris_diameter,
+    
+
 if __name__ == "__main__":
 
     # LOAD IR image
@@ -474,7 +487,14 @@ if __name__ == "__main__":
     # Geometry Estimation
     estimated_pupil, estimated_iris = run_geometry_estimation(pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y)
     print(estimated_pupil, estimated_iris)
-   
+
+    # Pupil to Iris Property Estimation
+    pupil_to_iris_diameter_ratio, pupil_to_iris_center_dist_ratio = run_pupil_property_estimation(pupil_array, iris_array, pupil_x, pupil_y, iris_x, iris_y)
+    print(pupil_to_iris_diameter_ratio, pupil_to_iris_center_dist_ratio)
+
+
+
+    
     #with open("full_output.txt", "w") as f:
     #    np.set_printoptions(threshold=np.inf)
     #    print(output_tensor, file=f)

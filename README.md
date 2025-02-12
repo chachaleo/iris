@@ -19,12 +19,13 @@ Implementation of ZKML iris recognition, using the worldcoin iris recognition pi
 9. **Eye Centers Inside Image Validator** → `iris.nodes.validators.cross_object_validators.EyeCentersInsideImageValidator` 🥱
 10. **Smoothing** → `iris.Smoothing` ✅
 11. **Geometry Estimation** → `iris.FusionExtrapolation` ✅
-12. **Pupil to Iris Property Estimation** → `iris.PupilIrisPropertyCalculator`
+12. **Pupil to Iris Property Estimation** → `iris.PupilIrisPropertyCalculator` ✅
 13. **Offgaze Estimation** → `iris.EccentricityOffgazeEstimation`
 14. **Occlusion 90 Calculator** → `iris.OcclusionCalculator`
 15. **Occlusion 30 Calculator** → `iris.OcclusionCalculator`
 16. **Noise Masks Aggregation** → `iris.NoiseMaskUnion`
 17. **Normalization** → `iris.LinearNormalization` 
+
 18. **Sharpness Estimation** → `iris.SharpnessEstimation`
 19. **Filter Bank** → `iris.ConvFilterBank`
 20. **Iris Response Refinement** → `iris.nodes.iris_response_refinement.fragile_bits_refinement.FragileBitRefinement`
