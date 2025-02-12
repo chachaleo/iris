@@ -265,7 +265,7 @@ def find_best_intersection(fst_points: np.ndarray, sec_points: np.ndarray) -> Tu
 
 
 # ----- Smoothing -----
-def run_smoothing(pupil_array, iris_array, eyeball_array,pupil_x, pupil_y, iris_x, iris_y) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def run_smoothing(pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     pupil_arcs = smooth(pupil_array, (pupil_x, pupil_y))
     iris_arcs = smooth(iris_array, (iris_x, iris_y))
     return pupil_arcs, iris_arcs, eyeball_array
@@ -377,6 +377,66 @@ def rolling_median(signal: np.ndarray, kernel_offset: int) -> np.ndarray:
 
 # ----- Geometry Estimation -----
 
+
+def run_geometry_estimation(pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y, algorithm_switch_std_threshold: float = 3.5) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    xs, ys = iris_array[:, 0], iris_array[:, 1]
+    rhos, _ = cartesian2polar(xs, ys, iris_x, iris_y)
+    estimated_pupil, estimated_iris = circle_extrapolation(pupil_array, iris_array, pupil_x, pupil_y, iris_x, iris_y)
+    radius_std = rhos.std()
+    if radius_std > algorithm_switch_std_threshold:
+        _, estimated_iris = ellipse_fit(pupil_array, iris_array, eyeball_array)
+
+    return estimated_pupil, estimated_iris
+
+# Circle extrapolation
+def circle_extrapolation(pupil_array, iris_array, pupil_x, pupil_y, iris_x, iris_y) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    estimated_pupil = estimate(pupil_array, (pupil_x, pupil_y))
+    estimated_iris = estimate(iris_array, (iris_x, iris_y))
+    return estimated_pupil, estimated_iris
+
+
+def estimate(vertices: np.ndarray, center_xy: Tuple[float, float], dphi: float = 0.9) -> np.ndarray:
+    rhos, phis = cartesian2polar(vertices[:, 0], vertices[:, 1], *center_xy)
+    padded_rhos = np.concatenate([rhos, rhos, rhos])
+    padded_phis = np.concatenate([phis - 2 * np.pi, phis, phis + 2 * np.pi])
+    interpolated_phis = np.arange(padded_phis.min(), padded_phis.max(), np.radians(dphi))
+    interpolated_rhos = np.interp(interpolated_phis, xp=padded_phis, fp=padded_rhos, period=2 * np.pi)
+    mask = (interpolated_phis >= 0) & (interpolated_phis < 2 * np.pi)
+    interpolated_phis, interpolated_rhos = interpolated_phis[mask], interpolated_rhos[mask]
+    xs, ys = polar2cartesian(interpolated_rhos, interpolated_phis, *center_xy)
+    estimated_vertices = np.column_stack([xs, ys])
+    return estimated_vertices
+
+# Ellipse fit
+def ellipse_fit(pupil_array, iris_array) ->  Tuple[np.ndarray, np.ndarray]:
+    extrapolated_pupil = extrapolate(pupil_array)
+    extrapolated_iris = extrapolate(iris_array)
+    for point in pupil_array:
+        extrapolated_pupil[find_correspondence(point, extrapolated_pupil)] = point
+    return extrapolated_pupil, extrapolated_iris
+    
+def extrapolate(polygon_points: np.ndarray, dphi: float = 1.0) -> np.ndarray:
+    (x0, y0), (a, b), theta = cv2.fitEllipse(polygon_points)
+    extrapolated_polygon = parametric_ellipsis(
+        a / 2, b / 2, x0, y0, np.radians(theta), round(360 / dphi)
+    )
+    # Rotate such that 0 degree is parallel with x-axis and array is clockwise
+    roll_amount = round((-theta - 90) / dphi)
+    extrapolated_polygon = np.flip(np.roll(extrapolated_polygon, roll_amount, axis=0), axis=0)
+    return extrapolated_polygon
+
+def find_correspondence(src_point: np.ndarray, dst_points: np.ndarray) -> int:
+    src_x, src_y = src_point
+    distance = (dst_points[:, 1] - src_y) ** 2 + (dst_points[:, 0] - src_x) ** 2
+    idx = np.where(distance == distance.min())[0]
+    return idx
+
+def parametric_ellipsis(a: float, b: float, x0: float, y0: float, theta: float, nb_step: int = 100) -> np.ndarray:
+    t = np.linspace(0, 2 * np.pi, nb_step)
+    x_coords = x0 + b * np.cos(t) * np.sin(-theta) + a * np.sin(t) * np.cos(-theta)
+    y_coords = y0 + b * np.cos(t) * np.cos(-theta) - a * np.sin(t) * np.sin(-theta)
+    return np.array([x_coords, y_coords]).T
+
 if __name__ == "__main__":
 
     # LOAD IR image
@@ -410,11 +470,10 @@ if __name__ == "__main__":
 
     # Smoothing
     pupil_arcs, iris_arcs, eyeball_array = run_smoothing(pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y)
-    print(pupil_arcs, iris_arcs, eyeball_array)
 
     # Geometry Estimation
-   
-   
+    estimated_pupil, estimated_iris = run_geometry_estimation(pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y)
+    print(estimated_pupil, estimated_iris)
    
     #with open("full_output.txt", "w") as f:
     #    np.set_printoptions(threshold=np.inf)
