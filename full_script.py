@@ -62,6 +62,8 @@ def run_binarization(prediction: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np
 
         return eyeball_mask, iris_mask, pupil_mask, eyelashes_mask
 
+
+
 # ----- VECTORIZATION -----
 def run_vectorization(eyeball_mask: np.ndarray, iris_mask: np.ndarray, pupil_mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     eyeball_array = find_class_contours(eyeball_mask.astype(np.uint8))
@@ -105,11 +107,7 @@ def area(array: np.ndarray, signed: bool = False) -> float:
     return float(area)
 
 
-
-
-
 # ----- Specular Reflection Detection -----
-
 def run_specular_reflection_detection(ir_image: np.ndarray, reflection_threshold: int = 254) -> np.ndarray:
     _, reflection_segmap = cv2.threshold(
         ir_image, reflection_threshold, 255, cv2.THRESH_BINARY
@@ -117,9 +115,9 @@ def run_specular_reflection_detection(ir_image: np.ndarray, reflection_threshold
     reflection_segmap = (reflection_segmap / 255.0).astype(bool)
     return reflection_segmap
 
+
+
 # ----- Interpolation -----
-
-
 def run_interpolation(pupil_array, iris_array, eyeball_array, max_distance_between_boundary_points: float = 0.01) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     iris_diameter = float(np.linalg.norm(iris_array[:, None, :] - iris_array[None, :, :], axis=-1).max())
 
@@ -131,7 +129,6 @@ def run_interpolation(pupil_array, iris_array, eyeball_array, max_distance_betwe
 
     return refined_pupil_array, refined_iris_array, refined_eyeball_array
     
-
 def interpolate_polygon_points(polygon: np.ndarray, max_distance_between_points_px: float) -> np.ndarray:
     previous_boundary = np.roll(polygon, shift=1, axis=0)
     distances = np.linalg.norm(polygon - previous_boundary, axis=1)
@@ -148,7 +145,6 @@ def interpolate_polygon_points(polygon: np.ndarray, max_distance_between_points_
 
 
 # ----- Distance Filter -----
-
 def run_distance_filter(pupil_array, iris_array, eyeball_array, noise_mask, min_distance_to_noise_and_eyeball: float = 0.005) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     iris_diameter = float(np.linalg.norm(iris_array[:, None, :] - iris_array[None, :, :], axis=-1).max())
 
@@ -178,7 +174,6 @@ def filter_polygon_points(forbidden_touch_map: np.ndarray, polygon_points: np.nd
 
 
 # ----- Eye Orientation -----
-
 def run_eye_orientation(pupil_array, iris_array, eyeball_array, eccentricity_threshold: float = 0.1) -> float:
     moments = cv2.moments(eyeball_array)
     ecc = eccentricity(moments)
@@ -198,7 +193,6 @@ def orientation(moments: Dict[str, float]) -> float:
         orientation = 0.5 * np.arctan(2 * moments["mu11"] / (moments["mu20"] - moments["mu02"]))
         if (moments["mu20"] - moments["mu02"]) < 0:
             orientation += np.pi / 2
-
         orientation = np.mod(orientation + np.pi / 2, np.pi) - np.pi / 2
 
     return orientation
@@ -212,20 +206,13 @@ def eccentricity(moments: Dict[str, float]) -> float:
 
 
 # ----- Eye Center Estimation -----
-
-
-
-
 def run_eye_center_estimation(pupil_array, iris_array, eyeball_array) -> Tuple[float, float, float, float]:
-
     pupil_diameter = float(np.linalg.norm(pupil_array[:, None, :] - pupil_array[None, :, :], axis=-1).max())
     iris_diameter = float(np.linalg.norm(iris_array[:, None, :] - iris_array[None, :, :], axis=-1).max())
-
     pupil_center_x, pupil_center_y = find_center_coords(pupil_array, pupil_diameter)
     iris_center_x, iris_center_y = find_center_coords(iris_array, iris_diameter)
 
     return pupil_center_x, pupil_center_y, iris_center_x, iris_center_y
-
 
 def find_center_coords(polygon: np.ndarray, diameter: float, min_distance_between_sector_points: float = 0.75) -> Tuple[float, float]:
     min_distance_between_sector_points_in_px = min_distance_between_sector_points * diameter
@@ -256,32 +243,139 @@ def calculate_perpendicular_bisectors(
     bisectors_first_points = bisectors_first_points[: num_bisectors]
     bisectors_second_points = bisectors_second_points[: num_bisectors]
     bisectors_center = (bisectors_first_points + bisectors_second_points) / 2
-    # Flip xs with ys and flip sign of on of them to create a 90deg rotation
     inv_bisectors_center_slope = np.fliplr(bisectors_second_points - bisectors_first_points)
     inv_bisectors_center_slope[:, 1] = -inv_bisectors_center_slope[:, 1]
-    # Add perpendicular vector to center and normalize
     norm = np.linalg.norm(inv_bisectors_center_slope, axis=1)
     inv_bisectors_center_slope[:, 0] /= norm
     inv_bisectors_center_slope[:, 1] /= norm
     first_bisectors_point = bisectors_center - inv_bisectors_center_slope
     second_bisectors_point = bisectors_center + inv_bisectors_center_slope
+
     return first_bisectors_point, second_bisectors_point
 
 def find_best_intersection(fst_points: np.ndarray, sec_points: np.ndarray) -> Tuple[float, float]:
     norm_bisectors = (sec_points - fst_points) / np.linalg.norm(sec_points - fst_points, axis=1)[:, np.newaxis]
-    # Generate the array of all projectors I - n*n.T
     projections = np.eye(norm_bisectors.shape[1]) - norm_bisectors[:, :, np.newaxis] * norm_bisectors[:, np.newaxis]
-    # Generate R matrix and q vector
     R = projections.sum(axis=0)
     q = (projections @ fst_points[:, :, np.newaxis]).sum(axis=0)
-    # Solve the least squares problem for the intersection point p: Rp = q
     p = np.linalg.lstsq(R, q, rcond=None)[0]
     intersection_x, intersection_y = p
     return intersection_x.item(), intersection_y.item()
 
 
 
+# ----- Smoothing -----
+def run_smoothing(pupil_array, iris_array, eyeball_array,pupil_x, pupil_y, iris_x, iris_y) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    pupil_arcs = smooth(pupil_array, (pupil_x, pupil_y))
+    iris_arcs = smooth(iris_array, (iris_x, iris_y))
+    return pupil_arcs, iris_arcs, eyeball_array
 
+def smooth(polygon: np.ndarray, center_xy: Tuple[float, float]) -> np.ndarray:
+    arcs, num_gaps = cut_into_arcs(polygon, center_xy)
+    arcs = (
+        smooth_circular_shape(arcs[0], center_xy)
+        if num_gaps == 0
+        else np.vstack([smooth_arc(arc, center_xy) for arc in arcs if len(arc) >= 2])
+    )
+    return arcs
+
+def cut_into_arcs(polygon: np.ndarray, center_xy: Tuple[float, float], gap_threshold: float = 10.0) -> Tuple[List[np.ndarray], int]:
+    rho, phi = cartesian2polar(polygon[:, 0], polygon[:, 1], *center_xy)
+    phi, rho = sort_two_arrays(phi, rho)
+    differences = np.abs(phi - np.roll(phi, -1))
+    differences[-1] = 2 * np.pi - differences[-1]
+    gap_indices = np.argwhere(differences > np.radians(gap_threshold)).flatten()
+    if gap_indices.size < 2:
+        return [polygon], gap_indices.size
+    gap_indices += 1
+    phi, rho = np.split(phi, gap_indices), np.split(rho, gap_indices)
+    arcs = [
+        np.column_stack(polar2cartesian(rho_coords, phi_coords, *center_xy))
+        for rho_coords, phi_coords in zip(rho, phi)
+    ]
+    if len(arcs) == gap_indices.size + 1:
+        arcs[0] = np.vstack([arcs[0], arcs[-1]])
+        arcs = arcs[:-1]
+    return arcs, gap_indices.size
+
+def smooth_arc(vertices: np.ndarray, center_xy: Tuple[float, float]) -> np.ndarray:
+    rho, phi = cartesian2polar(vertices[:, 0], vertices[:, 1], *center_xy)
+    phi, rho = sort_two_arrays(phi, rho)
+    idx = find_start_index(phi)
+    offset = phi[idx]
+    relative_phi = (phi - offset) % (2 * np.pi)
+    smoothed_relative_phi, smoothed_rho = smooth_array(relative_phi, rho)
+    smoothed_phi = (smoothed_relative_phi + offset) % (2 * np.pi)
+    x_smoothed, y_smoothed = polar2cartesian(smoothed_rho, smoothed_phi, *center_xy)
+    return np.column_stack([x_smoothed, y_smoothed])
+
+def smooth_circular_shape(vertices: np.ndarray, center_xy: Tuple[float, float]) -> np.ndarray:
+    rho, phi = cartesian2polar(vertices[:, 0], vertices[:, 1], *center_xy)
+    padded_phi = np.concatenate([phi - 2 * np.pi, phi, phi + 2 * np.pi])
+    padded_rho = np.concatenate([rho, rho, rho])
+    smoothed_phi, smoothed_rho = smooth_array(padded_phi, padded_rho)
+    mask = (smoothed_phi >= 0) & (smoothed_phi < 2 * np.pi)
+    rho_smoothed, phi_smoothed = smoothed_rho[mask], smoothed_phi[mask]
+    x_smoothed, y_smoothed = polar2cartesian(rho_smoothed, phi_smoothed, *center_xy)
+    return np.column_stack([x_smoothed, y_smoothed])
+
+def cartesian2polar(xs: np.ndarray, ys: np.ndarray, center_x: float, center_y: float) -> Tuple[np.ndarray, np.ndarray]:
+    x_rel: np.ndarray = xs - center_x
+    y_rel: np.ndarray = ys - center_y
+    C = np.vectorize(complex)(x_rel, y_rel)
+    rho = np.abs(C)
+    phi = np.angle(C) % (2 * np.pi)
+
+    return rho, phi
+
+def polar2cartesian(
+    rhos: np.ndarray, phis: np.ndarray, center_x: float, center_y: float
+) -> Tuple[np.ndarray, np.ndarray]:
+    xs = center_x + rhos * np.cos(phis)
+    ys = center_y + rhos * np.sin(phis)
+
+    return xs, ys
+
+def smooth_array(phis: np.ndarray, rhos: np.ndarray, dphi: float = 1.0, kernel_size: float = 10.0) -> Tuple[np.ndarray, np.ndarray]:
+    kernel_offset = max(1, int((np.radians(kernel_size) / np.radians(dphi))) // 2)
+    interpolated_phi = np.arange(min(phis), max(phis), np.radians(dphi))
+    interpolated_rho = np.interp(interpolated_phi, xp=phis, fp=rhos, period=2 * np.pi)
+    smoothed_rho = rolling_median(interpolated_rho, kernel_offset)
+    if len(interpolated_phi) - 1 >= kernel_offset * 2:
+        smoothed_phi = interpolated_phi[kernel_offset : -kernel_offset]
+    else:
+        smoothed_phi = interpolated_phi
+    return smoothed_phi, smoothed_rho
+
+def sort_two_arrays(first_list: np.ndarray, second_list: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    zipped_lists = zip(first_list, second_list)
+    sorted_pairs = sorted(zipped_lists)
+    sorted_tuples = zip(*sorted_pairs)
+    first_list, second_list = [list(sorted_tuple) for sorted_tuple in sorted_tuples]
+    return np.array(first_list), np.array(second_list)
+
+def find_start_index(phi: np.ndarray) -> int:
+    if not np.all((phi - np.roll(phi, 1))[1:] >= 0):
+        raise "Smoothing._find_start_index phi must be sorted ascendingly!"
+    phi_tmp = np.concatenate(([phi[-1] - 2 * np.pi], phi, [phi[0] + 2 * np.pi]))
+    phi_tmp_left_neighbor = np.roll(phi_tmp, 1)
+    dphi = (phi_tmp - phi_tmp_left_neighbor)[1:-1]
+    largest_gap_index = np.argmax(dphi)
+    return int(largest_gap_index)
+
+def rolling_median(signal: np.ndarray, kernel_offset: int) -> np.ndarray:
+    if signal.ndim != 1:
+        raise "Smoothing._rolling_median only works for 1d arrays."
+    stacked_signals: List[np.ndarray] = []
+    for i in range(-kernel_offset, kernel_offset + 1):
+        stacked_signals.append(np.roll(signal, i))
+    stacked_signals = np.stack(stacked_signals)
+    rolling_median = np.median(stacked_signals, axis=0)
+    if len(rolling_median) - 1 >= kernel_offset * 2:
+        rolling_median = rolling_median[kernel_offset:-kernel_offset]
+    return rolling_median
+
+# ----- Geometry Estimation -----
 
 if __name__ == "__main__":
 
@@ -303,7 +397,6 @@ if __name__ == "__main__":
     reflection_segmap = run_specular_reflection_detection(ir_image)
 
     # Interpolation
-    # iris_diameter = float(np.linalg.norm(iris_array[:, None, :] - iris_array[None, :, :], axis=-1).max())
     refined_pupil_array, refined_iris_array, refined_eyeball_array = run_interpolation(pupil_array, iris_array, eyeball_array)
 
     # Distance Filter
@@ -311,16 +404,19 @@ if __name__ == "__main__":
 
     # Eye Orientation
     angle = run_eye_orientation(pupil_array, iris_array, eyeball_array)
-    print(angle)
 
     # Eye Center Estimation
+    pupil_x, pupil_y, iris_x, iris_y = run_eye_center_estimation(pupil_array, iris_array, eyeball_array)
 
-    pupil_x, pupil_yy, iris_x, iris_y = run_eye_center_estimation(pupil_array, iris_array, eyeball_array)
-    print( pupil_x, pupil_yy, iris_x, iris_y)
+    # Smoothing
+    pupil_arcs, iris_arcs, eyeball_array = run_smoothing(pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y)
+    print(pupil_arcs, iris_arcs, eyeball_array)
+
+    # Geometry Estimation
    
    
    
-   #with open("full_output.txt", "w") as f:
+    #with open("full_output.txt", "w") as f:
     #    np.set_printoptions(threshold=np.inf)
     #    print(output_tensor, file=f)
 
