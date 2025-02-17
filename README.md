@@ -23,14 +23,14 @@ Implementation of ZKML iris recognition, using the worldcoin iris recognition pi
 13. **Offgaze Estimation** → `iris.EccentricityOffgazeEstimation` ✅
 14. **Occlusion 90 Calculator** → `iris.OcclusionCalculator` ✅
 15. **Occlusion 30 Calculator** → `iris.OcclusionCalculator` ✅
-16. **Noise Masks Aggregation** → `iris.NoiseMaskUnion`
-
-17. **Normalization** → `iris.LinearNormalization` 
-
-18. **Sharpness Estimation** → `iris.SharpnessEstimation`
-19. **Filter Bank** → `iris.ConvFilterBank`
+16. **Noise Masks Aggregation** → `iris.NoiseMaskUnion` ✅
+17. **Normalization** → `iris.LinearNormalization` ✅
+18. **Sharpness Estimation** → `iris.SharpnessEstimation` 🥱
+19. **Filter Bank** → `iris.ConvFilterBank` ✅
 20. **Iris Response Refinement** → `iris.nodes.iris_response_refinement.fragile_bits_refinement.FragileBitRefinement`
 21. **Encoder** → `iris.IrisEncoder`
 22. **Bounding Box Estimation** → `iris.IrisBBoxCalculator`
+
+## Turn each steps into ONNX equivalents
 
 
