@@ -1,7 +1,10 @@
 import onnxruntime as ort
 import numpy as np
 import cv2
-from typing import Optional, Tuple, List, Dict
+from typing import Tuple, List, Dict
+
+import matplotlib.pyplot as plt
+
 from pydantic import NonNegativeFloat, PositiveInt
 import math
 
@@ -14,6 +17,38 @@ MODEL_PATH = "onnx/iris_seg_initial.onnx"
 INPUT_IMAGE = "img/sample.png"
 
 session = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
+
+
+def plot_normalized_iris(
+    normalized_image,
+    normalized_mask,
+    plot_mask: bool = True,
+    stretch_hist: bool = True,
+    exposure_factor: float = 1.0,
+):
+    fig, axis = plt.subplots(*(1, 1))
+
+    if isinstance(axis, np.ndarray):
+        for individual_ax in axis.flatten():
+            individual_ax.set_xticks([])
+            individual_ax.set_yticks([])
+    else:
+        axis.set_xticks([])
+        axis.set_yticks([])
+
+    axis.imshow(np.minimum(normalized_image * exposure_factor, 255), cmap="gray")
+    if stretch_hist:
+        norm = normalized_image * normalized_mask
+        norm = norm.astype(np.float32)
+        norm[norm == 0] = np.nan
+        axis.imshow(norm, cmap="gray")
+
+    if plot_mask:
+        nm = normalized_mask.astype(np.float64)
+        nm[nm == 1] = np.nan
+        axis.imshow(nm, alpha=0.3, cmap="Reds", vmin=-1, vmax=3)
+
+    plt.show()
 
 
 # ----- SEGMENTATION -----
@@ -833,276 +868,6 @@ def normalize_all(
     return normalized_image / 255.0, normalized_mask
 
 
-# ----- Filter Bank -----
-def run_filter_blank(
-    normalized_image, normalized_mask
-) -> Tuple[np.ndarray, np.ndarray]:
-    iris_responses: List[np.ndarray] = []
-    mask_responses: List[np.ndarray] = []
-
-    # First Gabor Filter
-    kernel_size = (41, 21)
-    sigma_phi = 7
-    sigma_rho = 6.13
-    theta_degrees = 90.0
-    lambda_phi = 28
-    iris_response, mask_response = convolve(
-        kernel_size,
-        sigma_phi,
-        sigma_rho,
-        theta_degrees,
-        lambda_phi,
-        normalized_image,
-        normalized_mask,
-    )
-    iris_responses.append(iris_response)
-    mask_responses.append(mask_response)
-
-    # Second Gabor Filter
-    kernel_size = (17, 21)
-    sigma_phi = 2
-    sigma_rho = 5.86
-    theta_degrees = 90.0
-    lambda_phi = 8
-    iris_response, mask_response = convolve(
-        kernel_size,
-        sigma_phi,
-        sigma_rho,
-        theta_degrees,
-        lambda_phi,
-        normalized_image,
-        normalized_mask,
-    )
-    iris_responses.append(iris_response)
-    mask_responses.append(mask_response)
-
-    return iris_responses, mask_responses
-
-
-def convolve(
-    kernel_size,
-    sigma_phi,
-    sigma_rho,
-    theta_degrees,
-    lambda_phi,
-    normalized_image,
-    normalized_mask,
-) -> Tuple[np.ndarray, np.ndarray]:
-    kernel_values = compute_kernel_values(
-        kernel_size, sigma_phi, sigma_rho, theta_degrees, lambda_phi
-    )
-    kernel_norm = (
-        np.linalg.norm(kernel_values.real, ord="fro")
-        + np.linalg.norm(kernel_values.imag, ord="fro") * 1j
-    )
-    n_rows = 16
-    n_cols = 256
-    rhos, phis = generate_schema(n_rows, n_cols)
-    i_rows, i_cols = normalized_image.shape
-    k_rows, k_cols = kernel_values.shape
-    p_rows = k_rows // 2
-    p_cols = k_cols // 2
-    iris_response = np.zeros((n_rows, n_cols), dtype=np.complex64)
-    mask_response = np.zeros((n_rows, n_cols), dtype=np.complex64)
-    padded_iris = polar_img_padding(normalized_image, p_rows, p_cols)
-    padded_mask = polar_img_padding(normalized_mask, p_rows, p_cols)
-    for i in range(n_rows):
-        for j in range(n_cols):
-            pos = i * n_cols + j
-            r_probe = min(round(rhos[pos] * i_rows), i_rows - 1)
-            c_probe = min(round(phis[pos] * i_cols), i_cols - 1)
-            iris_patch = padded_iris[
-                r_probe : r_probe + k_rows, c_probe : c_probe + k_cols
-            ]
-            mask_patch = padded_mask[
-                r_probe : r_probe + k_rows, c_probe : c_probe + k_cols
-            ]
-            non_padded_k_rows = (
-                k_rows
-                if np.logical_and(r_probe > p_rows, r_probe <= i_rows - p_rows)
-                else (k_rows - max(p_rows - r_probe, r_probe + p_rows - i_rows))
-            )
-            iris_response[i][j] = (
-                (iris_patch * kernel_values).sum() / non_padded_k_rows / k_cols
-            )
-            mask_response[i][j] = (
-                0
-                if iris_response[i][j] == 0
-                else (mask_patch.sum() / non_padded_k_rows / k_cols)
-            )
-    iris_response.real = iris_response.real / kernel_norm.real
-    iris_response.imag = iris_response.imag / kernel_norm.imag
-    mask_response.imag = mask_response.real
-    return iris_response, mask_response
-
-
-def compute_kernel_values(
-    kernel_size,
-    sigma_phi,
-    sigma_rho,
-    theta_degrees,
-    lambda_phi,
-    dc_correction: bool = True,
-    to_fixpoints: bool = True,
-) -> np.ndarray:
-
-    x, y = get_xy_mesh(kernel_size)
-    rotx, roty = rotate(x, y, theta_degrees)
-    carrier = 1j * 2 * np.pi / lambda_phi * rotx
-    envelope = -(rotx**2 / sigma_phi**2 + roty**2 / sigma_rho**2) / 2
-    kernel_values = np.exp(envelope + carrier)
-    kernel_values /= 2 * np.pi * sigma_phi * sigma_rho
-
-    if dc_correction:
-        g_mean = np.mean(np.real(kernel_values), axis=-1)
-        correction_term_mean = np.mean(envelope, axis=-1)
-        kernel_values = (
-            kernel_values - (g_mean / correction_term_mean)[:, np.newaxis] * envelope
-        )
-
-    kernel_values = normalize_kernel_values(kernel_values)
-    if to_fixpoints:
-        kernel_values = convert_to_fixpoint_kernelvalues(kernel_values)
-
-    return kernel_values
-
-
-def get_xy_mesh(kernel_size: Tuple[int, int]) -> Tuple[np.ndarray, np.ndarray]:
-    ksize_phi_half = kernel_size[0] // 2
-    ksize_rho_half = kernel_size[1] // 2
-    y, x = np.meshgrid(
-        np.arange(-ksize_phi_half, ksize_phi_half + 1),
-        np.arange(-ksize_rho_half, ksize_rho_half + 1),
-        indexing="xy",
-        sparse=True,
-    )
-
-    return x, y
-
-
-def rotate(x: np.ndarray, y: np.ndarray, angle: float) -> Tuple[np.ndarray, np.ndarray]:
-    cos_theta = np.cos(angle * np.pi / 180)
-    sin_theta = np.sin(angle * np.pi / 180)
-    rotx = x * cos_theta + y * sin_theta
-    roty = -x * sin_theta + y * cos_theta
-
-    return rotx, roty
-
-
-def normalize_kernel_values(kernel_values: np.ndarray) -> np.ndarray:
-    norm_real = np.linalg.norm(kernel_values.real, ord="fro")
-    if norm_real > 0:
-        kernel_values.real /= norm_real
-    norm_imag = np.linalg.norm(kernel_values.imag, ord="fro")
-    if norm_imag > 0:
-        kernel_values.imag /= norm_imag
-
-    return kernel_values
-
-
-def convert_to_fixpoint_kernelvalues(kernel_values: np.ndarray) -> np.ndarray:
-    if np.iscomplexobj(kernel_values):
-        kernel_values.real = np.round(kernel_values.real * 2**15)
-        kernel_values.imag = np.round(kernel_values.imag * 2**15)
-    else:
-        kernel_values = np.round(kernel_values * 2**15)
-
-    return kernel_values
-
-
-def polar_img_padding(img: np.ndarray, p_rows: int, p_cols: int) -> np.ndarray:
-    i_rows, i_cols = img.shape
-    padded_image = np.zeros((i_rows + 2 * p_rows, i_cols + 2 * p_cols))
-
-    padded_image[p_rows : i_rows + p_rows, p_cols : i_cols + p_cols] = img
-    padded_image[p_rows : i_rows + p_rows, 0:p_cols] = img[:, -p_cols:]
-    padded_image[p_rows : i_rows + p_rows, -p_cols:] = img[:, 0:p_cols]
-
-    return padded_image
-
-
-def generate_schema(
-    n_rows,
-    n_cols,
-    boundary_rho: List[float] = [0, 0.0625],
-    # boundary_phi: "periodic-left",
-    image_shape: Optional[List[PositiveInt]] = None,
-) -> Tuple[np.ndarray, np.ndarray]:
-    rho = np.linspace(0 + boundary_rho[0], 1 - boundary_rho[1], n_rows, endpoint=True)
-    phi = np.linspace(0, 1, n_cols, endpoint=False)
-    phis, rhos = np.meshgrid(phi, rho)
-    rhos = rhos.flatten()
-    phis = phis.flatten()
-
-    if image_shape is not None:
-        rhos_pixel_values = rhos * image_shape[0]
-        phis_pixel_values = phis * image_shape[1]
-        rho_pixel_values = np.logical_or(
-            np.less_equal(rhos_pixel_values % 1, 10 ** (-10)),
-            np.less_equal(1 - 10 ** (-10), rhos_pixel_values % 1),
-        ).all()
-        phi_pixel_values = np.logical_or(
-            np.less_equal(phis_pixel_values % 1, 10 ** (-10)),
-            np.less_equal(1 - 10 ** (-10), phis_pixel_values % 1),
-        ).all()
-        if not rho_pixel_values:
-            raise f"Choice for n_rows {n_rows} leads to interpolation errors, please change input variables"
-
-        if not phi_pixel_values:
-            raise f"Choice for n_cols {n_cols} leads to interpolation errors"
-    return rhos, phis
-
-
-# ----- Iris Response Refinement -----
-def run_iris_response_refinement(
-    iris_responses,
-    mask_responses,
-    value_threshold=[0.0001, 0.275, 0.08726646259971647],
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    fragile_masks = []
-    for iris_response, iris_mask in zip(iris_responses, mask_responses):
-
-        # Frigile type = polar
-        iris_response_r = np.abs(iris_response)
-        iris_response_phi = np.angle(iris_response)
-        mask_value_r = np.logical_and(
-            iris_response_r >= value_threshold[0], iris_response_r <= value_threshold[1]
-        )
-        cos_mask = np.abs(np.cos(iris_response_phi)) <= np.abs(
-            np.cos(value_threshold[2])
-        )
-        sine_mask = np.abs(np.sin(iris_response_phi)) <= np.abs(
-            np.cos(value_threshold[2])
-        )
-        mask_value_real = mask_value_r * sine_mask * iris_mask.real
-        mask_value_imag = mask_value_r * cos_mask * iris_mask.imag
-        mask_value = mask_value_real + 1j * mask_value_imag
-
-        fragile_masks.append(mask_value)
-
-    return iris_responses, fragile_masks, iris_code_version
-
-
-# ----- Iris Encoder -----
-def run_iris_encoder(
-    iris_responses, fragile_masks, iris_code_version, mask_threshold: float = 0.9
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    iris_codes: List[np.ndarray] = []
-    mask_codes: List[np.ndarray] = []
-    for iris_response, mask_response in zip(iris_responses, mask_responses):
-        iris_code = np.stack([iris_response.real > 0, iris_response.imag > 0], axis=-1)
-        mask_code = np.stack(
-            [
-                mask_response.real >= mask_threshold,
-                mask_response.imag >= mask_threshold,
-            ],
-            axis=-1,
-        )
-        iris_codes.append(iris_code)
-        mask_codes.append(mask_code)
-    return iris_codes, mask_codes, iris_code_version
-
-
 if __name__ == "__main__":
 
     # LOAD IR image
@@ -1201,19 +966,4 @@ if __name__ == "__main__":
         ir_image, noise_mask, pupil_array, iris_array, eyeball_array, angle
     )
 
-    # Filter Bank
-    iris_code_version: str = "v0.1"
-    iris_responses, mask_responses = run_filter_blank(normalized_image, normalized_mask)
-
-    # Iris Response
-    iris_responses, fragile_masks, iris_code_version = run_iris_response_refinement(
-        iris_responses, mask_responses
-    )
-
-    # Iris Encoder
-    iris_codes, mask_codes, iris_code_version = run_iris_encoder(iris_responses, fragile_masks, iris_code_version)
-    print(iris_codes, mask_codes, iris_code_version)
-
-    # with open("full_output.txt", "w") as f:
-    #    np.set_printoptions(threshold=np.inf)
-    #    print(output_tensor, file=f)
+    plot_normalized_iris(normalized_image, normalized_mask)

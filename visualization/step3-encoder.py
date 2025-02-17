@@ -1,9 +1,12 @@
 import onnxruntime as ort
 import numpy as np
 import cv2
+import matplotlib.pyplot as plt
 from typing import Optional, Tuple, List, Dict
-from pydantic import NonNegativeFloat, PositiveInt
+from pydantic import NonNegativeFloat, PositiveInt, Field, confloat, fields
 import math
+
+import matplotlib.pyplot as plt
 
 INPUT_RESOLUTION = (640, 480)
 INPUT_CHANNELS = 3
@@ -14,6 +17,32 @@ MODEL_PATH = "onnx/iris_seg_initial.onnx"
 INPUT_IMAGE = "img/sample.png"
 
 session = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
+
+
+def plot_iris_template(iris_codes, mask_codes):
+    subplot_size = (2 * len(iris_codes), 1)
+    fig, axis = plt.subplots(*subplot_size)
+
+    if isinstance(axis, np.ndarray):
+        for individual_ax in axis.flatten():
+            individual_ax.set_xticks([])
+            individual_ax.set_yticks([])
+    else:
+        axis.set_xticks([])
+        axis.set_yticks([])
+
+    for i, (iris_code, mask_code) in enumerate(zip(iris_codes, mask_codes)):
+        axis[2 * i].imshow(iris_code[:, :, 0], cmap="gray")
+        axis[2 * i + 1].imshow(iris_code[:, :, 1], cmap="gray")
+
+    # plot mask
+
+    nm = mask_code[:, :, 0].astype(np.float64)
+    nm[nm == 1] = np.nan
+    axis[2 * i].imshow(nm, alpha=0.8, cmap="Reds", vmin=-1, vmax=0)
+    axis[2 * i + 1].imshow(nm, alpha=0.8, cmap="Reds", vmin=-1, vmax=0)
+
+    plt.show()
 
 
 # ----- SEGMENTATION -----
@@ -1211,9 +1240,9 @@ if __name__ == "__main__":
     )
 
     # Iris Encoder
-    iris_codes, mask_codes, iris_code_version = run_iris_encoder(iris_responses, fragile_masks, iris_code_version)
+    iris_codes, mask_codes, iris_code_version = run_iris_encoder(
+        iris_responses, fragile_masks, iris_code_version
+    )
     print(iris_codes, mask_codes, iris_code_version)
 
-    # with open("full_output.txt", "w") as f:
-    #    np.set_printoptions(threshold=np.inf)
-    #    print(output_tensor, file=f)
+    plot_iris_template(iris_codes, mask_codes)
