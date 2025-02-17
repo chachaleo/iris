@@ -1054,6 +1054,56 @@ def generate_schema(
     return rhos, phis
 
 
+# ----- Iris Response Refinement -----
+def run_iris_response_refinement(
+    iris_responses,
+    mask_responses,
+    value_threshold=[0.0001, 0.275, 0.08726646259971647],
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    fragile_masks = []
+    for iris_response, iris_mask in zip(iris_responses, mask_responses):
+
+        # Frigile type = polar
+        iris_response_r = np.abs(iris_response)
+        iris_response_phi = np.angle(iris_response)
+        mask_value_r = np.logical_and(
+            iris_response_r >= value_threshold[0], iris_response_r <= value_threshold[1]
+        )
+        cos_mask = np.abs(np.cos(iris_response_phi)) <= np.abs(
+            np.cos(value_threshold[2])
+        )
+        sine_mask = np.abs(np.sin(iris_response_phi)) <= np.abs(
+            np.cos(value_threshold[2])
+        )
+        mask_value_real = mask_value_r * sine_mask * iris_mask.real
+        mask_value_imag = mask_value_r * cos_mask * iris_mask.imag
+        mask_value = mask_value_real + 1j * mask_value_imag
+
+        fragile_masks.append(mask_value)
+
+    return iris_responses, fragile_masks, iris_code_version
+
+
+# ----- Iris Encoder -----
+def run_iris_encoder(
+    iris_responses, fragile_masks, iris_code_version, mask_threshold: float = 0.9
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    iris_codes: List[np.ndarray] = []
+    mask_codes: List[np.ndarray] = []
+    for iris_response, mask_response in zip(iris_responses, mask_responses):
+        iris_code = np.stack([iris_response.real > 0, iris_response.imag > 0], axis=-1)
+        mask_code = np.stack(
+            [
+                mask_response.real >= mask_threshold,
+                mask_response.imag >= mask_threshold,
+            ],
+            axis=-1,
+        )
+        iris_codes.append(iris_code)
+        mask_codes.append(mask_code)
+    return iris_codes, mask_codes, iris_code_version
+
+
 if __name__ == "__main__":
 
     # LOAD IR image
@@ -1155,7 +1205,15 @@ if __name__ == "__main__":
     # Filter Bank
     iris_code_version: str = "v0.1"
     iris_responses, mask_responses = run_filter_blank(normalized_image, normalized_mask)
-    print(iris_responses, mask_responses)
+
+    # Iris Response
+    iris_responses, fragile_masks, iris_code_version = run_iris_response_refinement(
+        iris_responses, mask_responses
+    )
+
+    # Iris Encoder
+    iris_codes, mask_codes, iris_code_version = run_iris_encoder(iris_responses, fragile_masks, iris_code_version)
+    print(iris_codes, mask_codes, iris_code_version)
 
     # with open("full_output.txt", "w") as f:
     #    np.set_printoptions(threshold=np.inf)
