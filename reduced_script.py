@@ -21,7 +21,7 @@ session = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
 
 
 # ----- SEGMENTATION -----
-def preprocess(
+def preprocess_segmap(
     image: np.ndarray, input_resolution: Tuple[int, int], nn_input_channels: int
 ) -> np.ndarray:
     nn_input = cv2.resize(image.astype(float), input_resolution)
@@ -132,48 +132,6 @@ def area(array: np.ndarray, signed: bool = False) -> float:
     return float(area)
 
 
-# ----- Interpolation -----
-def run_interpolation(
-    pupil_array,
-    iris_array,
-    eyeball_array,
-    max_distance_between_boundary_points: float = 0.01,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    iris_diameter = float(
-        np.linalg.norm(iris_array[:, None, :] - iris_array[None, :, :], axis=-1).max()
-    )
-
-    max_boundary_dist_in_px = max_distance_between_boundary_points * iris_diameter
-    refined_pupil_array = interpolate_polygon_points(
-        pupil_array.astype(np.float32), max_boundary_dist_in_px
-    )
-    refined_iris_array = interpolate_polygon_points(
-        iris_array.astype(np.float32), max_boundary_dist_in_px
-    )
-    refined_eyeball_array = interpolate_polygon_points(
-        eyeball_array.astype(np.float32), max_boundary_dist_in_px
-    )
-
-    return refined_pupil_array, refined_iris_array, refined_eyeball_array
-
-
-def interpolate_polygon_points(
-    polygon: np.ndarray, max_distance_between_points_px: float
-) -> np.ndarray:
-    previous_boundary = np.roll(polygon, shift=1, axis=0)
-    distances = np.linalg.norm(polygon - previous_boundary, axis=1)
-    num_points = np.ceil(distances / max_distance_between_points_px).astype(int)
-    x: List[np.ndarray] = []
-    y: List[np.ndarray] = []
-    for (x1, y1), (x2, y2), num_point in zip(previous_boundary, polygon, num_points):
-        x.append(np.linspace(x1, x2, num=num_point, endpoint=False))
-        y.append(np.linspace(y1, y2, num=num_point, endpoint=False))
-    new_boundary = np.stack([np.concatenate(x), np.concatenate(y)], axis=1)
-    _, indices = np.unique(new_boundary, axis=0, return_index=True)
-    new_boundary = new_boundary[np.sort(indices)]
-    return new_boundary
-
-
 # ----- Distance Filter -----
 def run_distance_filter(
     pupil_array,
@@ -220,9 +178,7 @@ def filter_polygon_points(
 
 
 # ----- Eye Orientation -----
-def run_eye_orientation(
-    eyeball_array, eccentricity_threshold: float = 0.1
-) -> float:
+def run_eye_orientation(eyeball_array, eccentricity_threshold: float = 0.1) -> float:
     moments = cv2.moments(eyeball_array)
     ecc = eccentricity(moments)
     if ecc < eccentricity_threshold:
@@ -348,72 +304,6 @@ def find_best_intersection(
     return intersection_x.item(), intersection_y.item()
 
 
-# ----- Smoothing -----
-def run_smoothing(
-    pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    pupil_arcs = smooth(pupil_array, (pupil_x, pupil_y))
-    iris_arcs = smooth(iris_array, (iris_x, iris_y))
-    return pupil_arcs, iris_arcs, eyeball_array
-
-
-def smooth(polygon: np.ndarray, center_xy: Tuple[float, float]) -> np.ndarray:
-    arcs, num_gaps = cut_into_arcs(polygon, center_xy)
-    arcs = (
-        smooth_circular_shape(arcs[0], center_xy)
-        if num_gaps == 0
-        else np.vstack([smooth_arc(arc, center_xy) for arc in arcs if len(arc) >= 2])
-    )
-    return arcs
-
-
-def cut_into_arcs(
-    polygon: np.ndarray, center_xy: Tuple[float, float], gap_threshold: float = 10.0
-) -> Tuple[List[np.ndarray], int]:
-    rho, phi = cartesian2polar(polygon[:, 0], polygon[:, 1], *center_xy)
-    phi, rho = sort_two_arrays(phi, rho)
-    differences = np.abs(phi - np.roll(phi, -1))
-    differences[-1] = 2 * np.pi - differences[-1]
-    gap_indices = np.argwhere(differences > np.radians(gap_threshold)).flatten()
-    if gap_indices.size < 2:
-        return [polygon], gap_indices.size
-    gap_indices += 1
-    phi, rho = np.split(phi, gap_indices), np.split(rho, gap_indices)
-    arcs = [
-        np.column_stack(polar2cartesian(rho_coords, phi_coords, *center_xy))
-        for rho_coords, phi_coords in zip(rho, phi)
-    ]
-    if len(arcs) == gap_indices.size + 1:
-        arcs[0] = np.vstack([arcs[0], arcs[-1]])
-        arcs = arcs[:-1]
-    return arcs, gap_indices.size
-
-
-def smooth_arc(vertices: np.ndarray, center_xy: Tuple[float, float]) -> np.ndarray:
-    rho, phi = cartesian2polar(vertices[:, 0], vertices[:, 1], *center_xy)
-    phi, rho = sort_two_arrays(phi, rho)
-    idx = find_start_index(phi)
-    offset = phi[idx]
-    relative_phi = (phi - offset) % (2 * np.pi)
-    smoothed_relative_phi, smoothed_rho = smooth_array(relative_phi, rho)
-    smoothed_phi = (smoothed_relative_phi + offset) % (2 * np.pi)
-    x_smoothed, y_smoothed = polar2cartesian(smoothed_rho, smoothed_phi, *center_xy)
-    return np.column_stack([x_smoothed, y_smoothed])
-
-
-def smooth_circular_shape(
-    vertices: np.ndarray, center_xy: Tuple[float, float]
-) -> np.ndarray:
-    rho, phi = cartesian2polar(vertices[:, 0], vertices[:, 1], *center_xy)
-    padded_phi = np.concatenate([phi - 2 * np.pi, phi, phi + 2 * np.pi])
-    padded_rho = np.concatenate([rho, rho, rho])
-    smoothed_phi, smoothed_rho = smooth_array(padded_phi, padded_rho)
-    mask = (smoothed_phi >= 0) & (smoothed_phi < 2 * np.pi)
-    rho_smoothed, phi_smoothed = smoothed_rho[mask], smoothed_phi[mask]
-    x_smoothed, y_smoothed = polar2cartesian(rho_smoothed, phi_smoothed, *center_xy)
-    return np.column_stack([x_smoothed, y_smoothed])
-
-
 def cartesian2polar(
     xs: np.ndarray, ys: np.ndarray, center_x: float, center_y: float
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -435,58 +325,10 @@ def polar2cartesian(
     return xs, ys
 
 
-def smooth_array(
-    phis: np.ndarray, rhos: np.ndarray, dphi: float = 1.0, kernel_size: float = 10.0
-) -> Tuple[np.ndarray, np.ndarray]:
-    kernel_offset = max(1, int((np.radians(kernel_size) / np.radians(dphi))) // 2)
-    interpolated_phi = np.arange(min(phis), max(phis), np.radians(dphi))
-    interpolated_rho = np.interp(interpolated_phi, xp=phis, fp=rhos, period=2 * np.pi)
-    smoothed_rho = rolling_median(interpolated_rho, kernel_offset)
-    if len(interpolated_phi) - 1 >= kernel_offset * 2:
-        smoothed_phi = interpolated_phi[kernel_offset:-kernel_offset]
-    else:
-        smoothed_phi = interpolated_phi
-    return smoothed_phi, smoothed_rho
-
-
-def sort_two_arrays(
-    first_list: np.ndarray, second_list: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray]:
-    zipped_lists = zip(first_list, second_list)
-    sorted_pairs = sorted(zipped_lists)
-    sorted_tuples = zip(*sorted_pairs)
-    first_list, second_list = [list(sorted_tuple) for sorted_tuple in sorted_tuples]
-    return np.array(first_list), np.array(second_list)
-
-
-def find_start_index(phi: np.ndarray) -> int:
-    if not np.all((phi - np.roll(phi, 1))[1:] >= 0):
-        raise "Smoothing._find_start_index phi must be sorted ascendingly!"
-    phi_tmp = np.concatenate(([phi[-1] - 2 * np.pi], phi, [phi[0] + 2 * np.pi]))
-    phi_tmp_left_neighbor = np.roll(phi_tmp, 1)
-    dphi = (phi_tmp - phi_tmp_left_neighbor)[1:-1]
-    largest_gap_index = np.argmax(dphi)
-    return int(largest_gap_index)
-
-
-def rolling_median(signal: np.ndarray, kernel_offset: int) -> np.ndarray:
-    if signal.ndim != 1:
-        raise "Smoothing._rolling_median only works for 1d arrays."
-    stacked_signals: List[np.ndarray] = []
-    for i in range(-kernel_offset, kernel_offset + 1):
-        stacked_signals.append(np.roll(signal, i))
-    stacked_signals = np.stack(stacked_signals)
-    rolling_median = np.median(stacked_signals, axis=0)
-    if len(rolling_median) - 1 >= kernel_offset * 2:
-        rolling_median = rolling_median[kernel_offset:-kernel_offset]
-    return rolling_median
-
-
 # ----- Geometry Estimation -----
 def run_geometry_estimation(
     pupil_array,
     iris_array,
-    eyeball_array,
     pupil_x,
     pupil_y,
     iris_x,
@@ -500,7 +342,7 @@ def run_geometry_estimation(
     )
     radius_std = rhos.std()
     if radius_std > algorithm_switch_std_threshold:
-        _, estimated_iris = ellipse_fit(pupil_array, iris_array, eyeball_array)
+        _, estimated_iris = ellipse_fit(pupil_array, iris_array)
 
     return estimated_pupil, estimated_iris
 
@@ -634,9 +476,7 @@ def correct_orientation(
     return pupil_points, iris_points
 
 
-def generate_iris_mask(
-    iris_array, eyeball_array, noise_mask: np.ndarray
-) -> np.ndarray:
+def generate_iris_mask(iris_array, eyeball_array, noise_mask: np.ndarray) -> np.ndarray:
     img_h, img_w = noise_mask.shape[:2]
 
     iris_mask = contour_to_mask(iris_array, (img_w, img_h))
@@ -657,6 +497,7 @@ def contour_to_mask(vertices: np.ndarray, mask_shape: Tuple[int, int]) -> np.nda
     mask = mask.astype(bool)
 
     return mask
+
 
 def normalize_all(
     image: np.ndarray,
@@ -906,36 +747,6 @@ def generate_schema(
     return rhos, phis
 
 
-# ----- Iris Response Refinement -----
-def run_iris_response_refinement(
-    iris_responses,
-    mask_responses,
-    value_threshold=[0.0001, 0.275, 0.08726646259971647],
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    fragile_masks = []
-    for iris_response, iris_mask in zip(iris_responses, mask_responses):
-
-        # Frigile type = polar
-        iris_response_r = np.abs(iris_response)
-        iris_response_phi = np.angle(iris_response)
-        mask_value_r = np.logical_and(
-            iris_response_r >= value_threshold[0], iris_response_r <= value_threshold[1]
-        )
-        cos_mask = np.abs(np.cos(iris_response_phi)) <= np.abs(
-            np.cos(value_threshold[2])
-        )
-        sine_mask = np.abs(np.sin(iris_response_phi)) <= np.abs(
-            np.cos(value_threshold[2])
-        )
-        mask_value_real = mask_value_r * sine_mask * iris_mask.real
-        mask_value_imag = mask_value_r * cos_mask * iris_mask.imag
-        mask_value = mask_value_real + 1j * mask_value_imag
-
-        fragile_masks.append(mask_value)
-
-    return iris_responses, fragile_masks
-
-
 # ----- Iris Encoder -----
 def run_iris_encoder(
     iris_responses, mask_responses, mask_threshold: float = 0.9
@@ -961,21 +772,21 @@ def pipeline(name) -> Tuple[np.ndarray, np.ndarray]:
     ir_image = cv2.imread(name, cv2.IMREAD_GRAYSCALE)
 
     # Segmentation
-    nn_input = preprocess(ir_image, INPUT_RESOLUTION, INPUT_CHANNELS).astype(np.float32)
+    nn_input = preprocess_segmap(ir_image, INPUT_RESOLUTION, INPUT_CHANNELS).astype(
+        np.float32
+    )
     segmap = run_segmentation(nn_input)
-    segmap = postprocess_segmap(segmap["output"], original_image_resolution=(ir_image.shape[1], ir_image.shape[0]))
+    segmap = postprocess_segmap(
+        segmap["output"],
+        original_image_resolution=(ir_image.shape[1], ir_image.shape[0]),
+    )
 
-    # Binarization
+    # Segmentation Binarization
     eyeball_mask, iris_mask, pupil_mask, noise_mask = run_binarization(segmap)
 
     # Vectorization
     pupil_array, iris_array, eyeball_array = run_vectorization(
         eyeball_mask, iris_mask, pupil_mask
-    )
-
-    # Interpolation
-    pupil_array, iris_array, eyeball_array = run_interpolation(
-        pupil_array, iris_array, eyeball_array
     )
 
     # Distance Filter
@@ -991,15 +802,9 @@ def pipeline(name) -> Tuple[np.ndarray, np.ndarray]:
         pupil_array, iris_array
     )
 
-    # Smoothing
-    # Could be removed
-    pupil_array, iris_array, eyeball_array = run_smoothing(
-        pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y
-    )
-
     # Geometry Estimation
     pupil_array, iris_array = run_geometry_estimation(
-        pupil_array, iris_array, eyeball_array, pupil_x, pupil_y, iris_x, iris_y
+        pupil_array, iris_array, pupil_x, pupil_y, iris_x, iris_y
     )
 
     # Linear Normalization
@@ -1010,14 +815,9 @@ def pipeline(name) -> Tuple[np.ndarray, np.ndarray]:
     # Filter Bank
     iris_responses, mask_responses = run_filter_blank(normalized_image, normalized_mask)
 
-    # Iris Response
-    iris_responses, fragile_masks = run_iris_response_refinement(
-        iris_responses, mask_responses
-    )
-
     # Iris Encoder
-    iris_codes, mask_codes = run_iris_encoder(iris_responses, fragile_masks)
-    
+    iris_codes, mask_codes = run_iris_encoder(iris_responses, mask_responses)
+
     return iris_codes, mask_codes
 
 
@@ -1026,8 +826,12 @@ if __name__ == "__main__":
     iris_codes2, mask_codes2 = pipeline(INPUT_IMAGE2)
     iris_codes_other, mask_codes_other = pipeline(INPUT_IMAGE_OTHER)
 
-    match_dist, _ = matching.hamming_distance(iris_codes, mask_codes, iris_codes2, mask_codes2)
-    match_dist_other, _ = matching.hamming_distance(iris_codes, mask_codes, iris_codes_other, mask_codes_other)
+    match_dist, _ = matching.hamming_distance(
+        iris_codes, mask_codes, iris_codes2, mask_codes2
+    )
+    match_dist_other, _ = matching.hamming_distance(
+        iris_codes, mask_codes, iris_codes_other, mask_codes_other
+    )
 
     print(match_dist)
     print(match_dist_other)
