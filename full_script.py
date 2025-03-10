@@ -1212,7 +1212,6 @@ if __name__ == "__main__":
 
     # Iris Encoder
     iris_codes, mask_codes, iris_code_version = run_iris_encoder(iris_responses, fragile_masks, iris_code_version)
-    print(iris_codes, mask_codes, iris_code_version)
 
     # with open("full_output.txt", "w") as f:
     #    np.set_printoptions(threshold=np.inf)

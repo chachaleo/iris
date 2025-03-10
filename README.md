@@ -47,4 +47,3 @@ Implementation of ZKML iris recognition, using the worldcoin iris recognition pi
 
 -> The reduction does result to a lost of precision
 -> The steps skipped are not the biggest ones in term of computation 
-

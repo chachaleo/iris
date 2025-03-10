@@ -433,11 +433,8 @@ def run_linear_normalization(
         iris_array,
         angle,
     )
-    print(image.shape)
-    print(oversat_threshold)
     iris_mask = generate_iris_mask(iris_array, eyeball_array, noise_mask)
 
-    print(iris_mask.shape)
     iris_mask[image >= oversat_threshold] = False
     src_points = generate_correspondences(pupil_points, iris_points)
     normalized_image, normalized_mask = normalize_all(image, iris_mask, src_points)
