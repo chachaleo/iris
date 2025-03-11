@@ -24,7 +24,9 @@ def hamming_distance(
 
     for current_shift in [0] + [y for x in range(1, rotation_shift + 1) for y in (-x, x)]:
         irisbits, maskbits = get_bitcounts(iris_codes_a, mask_codes_a, iris_codes_b, mask_codes_b, current_shift)
+
         totalirisbitcount, totalmaskbitcount = count_nonmatchbits(irisbits, maskbits)
+
         totalmaskbitcountsum = totalmaskbitcount.sum()
         if totalmaskbitcountsum == 0:
             continue
@@ -36,13 +38,6 @@ def hamming_distance(
             match_rot = current_shift
 
     return match_dist, match_rot
-
-
-
-def normalized_HD(irisbitcount: int, maskbitcount: int, norm_mean: float, norm_gradient: float) -> float:
-    # Linear approximation to replace the previous sqrt-based normalization term.
-    norm_HD = max(0, norm_mean - (norm_mean - irisbitcount / maskbitcount) * (norm_gradient * maskbitcount + 0.5))
-    return norm_HD
 
 
 def get_bitcounts(iris_codes_a, mask_codes_a, iris_codes_b, mask_codes_b, shift: int) -> np.ndarray:

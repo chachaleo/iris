@@ -5,7 +5,7 @@ from typing import Optional, Tuple, List, Dict
 from pydantic import NonNegativeFloat, PositiveInt
 import math
 
-import matching
+import matching.matching as matching
 
 INPUT_RESOLUTION = (640, 480)
 INPUT_CHANNELS = 3
@@ -818,6 +818,21 @@ def pipeline(name) -> Tuple[np.ndarray, np.ndarray]:
     return iris_codes, mask_codes
 
 
+def matching_onnx(iris_codes_a, mask_codes_a, iris_codes_b, mask_codes_b):
+    session = ort.InferenceSession("onnx/hamming_distance.onnx")
+    
+    inputs = {
+        "iris_codes_a": iris_codes_a,
+        "mask_codes_a": mask_codes_a,
+        "iris_codes_b": iris_codes_b,
+        "mask_codes_b": mask_codes_b,
+    }
+
+    match_dist = session.run(None, inputs)
+    
+    return match_dist
+
+
 if __name__ == "__main__":
     iris_codes, mask_codes = pipeline(INPUT_IMAGE)
     iris_codes2, mask_codes2 = pipeline(INPUT_IMAGE2)
@@ -826,9 +841,17 @@ if __name__ == "__main__":
     match_dist, _ = matching.hamming_distance(
         iris_codes, mask_codes, iris_codes2, mask_codes2
     )
+
     match_dist_other, _ = matching.hamming_distance(
         iris_codes, mask_codes, iris_codes_other, mask_codes_other
     )
 
+    match_dist_onnx = matching_onnx(iris_codes, mask_codes, iris_codes2, mask_codes2)
+    match_dist_onnx_other = matching_onnx(iris_codes, mask_codes, iris_codes_other, mask_codes_other)
+
     print(match_dist)
     print(match_dist_other)
+
+
+    print(match_dist_onnx)
+    print(match_dist_onnx_other)
