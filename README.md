@@ -4,7 +4,7 @@
   <img src="img/iris.png" alt="iris-logo" height="260"/>
 </div>
 
-Implementation of ZKML iris recognition, using the worldcoin iris recognition pipeline.
+Implementation of ZKML iris recognition, using the worldcoin iris recognition pipeline as a starting point.
 
 ## Pipeline Steps and Corresponding Functions
 

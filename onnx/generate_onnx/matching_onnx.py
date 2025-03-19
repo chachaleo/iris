@@ -2,9 +2,8 @@ import torch
 import torch.nn as nn
 import torch.onnx
 
-
-import torch
-import torch.nn as nn
+BATCH_SIZE = 16
+CODE_LENGTH = 256
 
 class HammingDistanceModel(nn.Module):
     def __init__(self, rotation_shift=15):
@@ -45,7 +44,6 @@ def get_bitcounts(iris_codes_a, mask_codes_a, iris_codes_b, mask_codes_b, shift:
     return irisbits, maskbits
 
 def count_nonmatchbits(irisbits, maskbits):
-
     irisbitcount = [torch.sum(x & y, axis=0) for x, y in zip(irisbits, maskbits)]
     maskbitcount = [torch.sum(y, axis=0) for y in maskbits]
 
@@ -55,16 +53,13 @@ def count_nonmatchbits(irisbits, maskbits):
     return totalirisbitcount, totalmaskbitcount
 
 
-
-batch_size = 16
-code_length = 256
-iris_codes_a = torch.randint(2, (2, batch_size, code_length, 2), dtype=torch.bool)
-mask_codes_a = torch.randint(2, (2, batch_size, code_length, 2), dtype=torch.bool)
-iris_codes_b = torch.randint(2, (2, batch_size, code_length, 2), dtype=torch.bool)
-mask_codes_b = torch.randint(2, (2, batch_size, code_length, 2), dtype=torch.bool)
+iris_codes_a = torch.randint(2, (2, BATCH_SIZE, CODE_LENGTH, 2), dtype=torch.bool)
+mask_codes_a = torch.randint(2, (2, BATCH_SIZE, CODE_LENGTH, 2), dtype=torch.bool)
+iris_codes_b = torch.randint(2, (2, BATCH_SIZE, CODE_LENGTH, 2), dtype=torch.bool)
+mask_codes_b = torch.randint(2, (2, BATCH_SIZE, CODE_LENGTH, 2), dtype=torch.bool)
 
 model = HammingDistanceModel(rotation_shift=15)
-onnx_path = "../onnx/hamming_distance.onnx"
+onnx_path = "../hamming_distance.onnx"
 
 torch.onnx.export(
     model,
