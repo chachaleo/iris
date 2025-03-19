@@ -3,8 +3,8 @@ import numpy as np
 from pipeline import pipeline
 
 MODEL_PATH = "../onnx/iris_seg_initial.onnx"
-INPUT_IMAGE = "../img/chacha.png"
-INPUT_IMAGE2 = "../img/chacha2.png"
+INPUT_IMAGE = "../img/sample.png"
+INPUT_IMAGE2 = "../img/sample2.png"
 INPUT_IMAGE_OTHER = "../img/sample_other.png"
 
 def matching_onnx(iris_codes_a, mask_codes_a, iris_codes_b, mask_codes_b):
