@@ -5,8 +5,12 @@ import json
 
 
 MODEL_PATH = "../onnx/iris_seg_initial.onnx"
+
+# Image of the same eye
 INPUT_IMAGE = "../img/sample.png"
 INPUT_IMAGE2 = "../img/sample2.png"
+
+# Image of a different eye
 INPUT_IMAGE_OTHER = "../img/sample_other.png"
 
 def matching_onnx(iris_codes_a, mask_codes_a, iris_codes_b, mask_codes_b):
@@ -27,13 +31,10 @@ def matching_onnx(iris_codes_a, mask_codes_a, iris_codes_b, mask_codes_b):
 if __name__ == "__main__":
     iris_codes, mask_codes = pipeline(INPUT_IMAGE, MODEL_PATH)
     iris_codes2, mask_codes2 = pipeline(INPUT_IMAGE2, MODEL_PATH)
-    iris_codes_other, mask_codes_other = pipeline(INPUT_IMAGE_OTHER, MODEL_PATH)
 
     match_dist_onnx = matching_onnx(iris_codes, mask_codes, iris_codes2, mask_codes2)
-    match_dist_onnx_other = matching_onnx(iris_codes, mask_codes, iris_codes_other, mask_codes_other)
 
     print(match_dist_onnx)
-    print(match_dist_onnx_other)
 
     iris_codes = np.array(iris_codes).reshape([-1]).tolist()
     mask_codes = np.array(mask_codes).reshape([-1]).tolist()

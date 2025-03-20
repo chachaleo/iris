@@ -4,46 +4,67 @@
   <img src="img/iris.png" alt="iris-logo" height="260"/>
 </div>
 
-Implementation of ZKML iris recognition, using the worldcoin iris recognition pipeline as a starting point.
-
-## Pipeline Steps and Corresponding Functions
-
-1. **Segmentation** → `iris.MultilabelSegmentation.create_from_hugging_face` 
-2. **Segmentation Binarization** → `iris.MultilabelSegmentationBinarization` 
-3. **Vectorization** → `iris.ContouringAlgorithm` 
-4. **Specular Reflection Detection** → `iris.SpecularReflectionDetection` 
-5. **Interpolation** → `iris.ContourInterpolation` 
-6. **Distance Filter** → `iris.ContourPointNoiseEyeballDistanceFilter` 
-7. **Eye Orientation** → `iris.MomentOfArea` 
-8. **Eye Center Estimation** → `iris.BisectorsMethod` 
-9. **Eye Centers Inside Image Validator** → `iris.nodes.validators.cross_object_validators.EyeCentersInsideImageValidator` 
-10. **Smoothing** → `iris.Smoothing` 
-11. **Geometry Estimation** → `iris.FusionExtrapolation` 
-12. **Pupil to Iris Property Estimation** → `iris.PupilIrisPropertyCalculator` 
-13. **Offgaze Estimation** → `iris.EccentricityOffgazeEstimation` 
-14. **Occlusion 90 Calculator** → `iris.OcclusionCalculator` 
-15. **Occlusion 30 Calculator** → `iris.OcclusionCalculator` 
-16. **Noise Masks Aggregation** → `iris.NoiseMaskUnion` 
-17. **Normalization** → `iris.LinearNormalization` 
-18. **Sharpness Estimation** → `iris.SharpnessEstimation` 
-19. **Filter Bank** → `iris.ConvFilterBank` 
-20. **Iris Response Refinement** → `iris.nodes.iris_response_refinement.fragile_bits_refinement.FragileBitRefinement` 
-21. **Encoder** → `iris.IrisEncoder` 
-22. **Bounding Box Estimation** → `iris.IrisBBoxCalculator`
 
 
-## Pipeline Reduced
+Implementation of ZKML iris recognition, inspired by the worldcoin iris recognition pipeline.
 
-1. **Segmentation** → `iris.MultilabelSegmentation.create_from_hugging_face` ✅
-2. **Segmentation Binarization** → `iris.MultilabelSegmentationBinarization` ✅
-3. **Vectorization** → `iris.ContouringAlgorithm` ✅
-4. **Distance Filter** → `iris.ContourPointNoiseEyeballDistanceFilter` ✅
-5. **Eye Orientation** → `iris.MomentOfArea` ✅
-6. **Eye Center Estimation** → `iris.BisectorsMethod` ✅
-7. **Geometry Estimation** → `iris.FusionExtrapolation` ✅
-8. **Normalization** → `iris.LinearNormalization` ✅
-9. **Filter Bank** → `iris.ConvFilterBank` ✅
-10. **Encoder** → `iris.IrisEncoder` ✅
+## How to use
 
--> The reduction does result to a lost of precision
--> The steps skipped are not the biggest ones in term of computation 
+### 1. Input Generation
+
+Hardcode the path of your iris images in src/main.py (default uses samples)
+
+Then to generate the iris code input ("input.json") for the ONNX model run (it will also perform the matching and ouput the distance in a non proved way) :
+
+```bash
+python src/main.py
+```
+
+File proving/matching/input.json has been generated.
+
+```bash
+cd proving/matching
+```
+
+The directory contains :
+
+* network.onnx : the hamming distance onnx model
+* input.json : the input of the model
+* gen_calibration.py (optionnal, can be executed to generate calibration.json)
+
+### 2. Proving
+
+#### With EZKL CLI
+Install EZKL then 
+
+1. Setup and prove :
+```bash
+ezkl gen-settings 
+ezkl compile-circuit
+ezkl gen-witness
+ezkl gen-srs
+ezkl setup 
+ezkl prove
+```
+
+
+#### With Archon CLI
+Install archon then :
+
+1. Create artifact :
+```bash
+archon create-artifact -a matching --data-path input.json --model-path network.onnx
+```
+
+2. Setup and prove :
+
+```bash
+archon job -a matching gen-settings 
+archon job -a matching compile-circuit
+archon job -a matching gen-witness
+archon job -a matching gen-srs
+archon job -a matching setup 
+archon job -a matching prove
+```
+
+
