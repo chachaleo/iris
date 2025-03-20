@@ -1,6 +1,8 @@
 import onnxruntime as ort
-import numpy as np
 from pipeline import pipeline
+import numpy as np
+import json
+
 
 MODEL_PATH = "../onnx/iris_seg_initial.onnx"
 INPUT_IMAGE = "../img/sample.png"
@@ -32,3 +34,11 @@ if __name__ == "__main__":
 
     print(match_dist_onnx)
     print(match_dist_onnx_other)
+
+    iris_codes = np.array(iris_codes).reshape([-1]).tolist()
+    mask_codes = np.array(mask_codes).reshape([-1]).tolist()
+    iris_codes2 = np.array(iris_codes2).reshape([-1]).tolist()
+    mask_codes2 = np.array(mask_codes2).reshape([-1]).tolist()
+
+    data = dict(input_data = [iris_codes, mask_codes, iris_codes2, mask_codes2])
+    json.dump(data, open("../proving/matching/input.json", 'w' ))
